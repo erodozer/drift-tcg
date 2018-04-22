@@ -9,6 +9,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/go-redis/redis"
@@ -19,15 +20,15 @@ var manager *golongpoll.LongpollManager
 
 func getClient() *redis.Client {
 	return redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
-		Password: "", // no password set
-		DB:       0,  // use default DB
+		Addr: os.Getenv("REDIS_URL"),
+		DB:   0, // use default DB
 	})
 }
 
 // Publishes a reduced version of the game to the clients and redis
 func publishState(game *models.Game) []byte {
-
+	dto, _ := json.Marshal(game)
+	return dto
 }
 
 // CardHandler will map all cards available into
@@ -50,11 +51,40 @@ func cardHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(out)
 }
 
+type DeckDTO struct {
+	Car       string
+	TuneUps   []string
+	Disasters []string
+	Roads     []string
+}
+
+func (d *DeckDTO) toDeck() models.Deck {
+	car := cards.Cars[d.Car]
+	tuneups := []models.TuneUp{}
+	disasters := []models.Disaster{}
+	roads := []models.Road{}
+	for _, card := range cards.TuneUps {
+		tuneups = append(tuneups, card)
+	}
+	for _, card := range cards.Disasters {
+		disasters = append(disasters, card)
+	}
+	for _, card := range cards.Roads {
+		roads = append(roads, card)
+	}
+	return models.Deck{
+		Car:       car,
+		Tuneups:   tuneups,
+		Disasters: disasters,
+		Roads:     roads,
+	}
+}
+
 type JoinGameRequest struct {
-	session string      `json:"sessionID"`
-	uuid    string      `json:"uuid"`
-	player  string      `json:"playerID"`
-	deck    models.Deck `json:"deck"`
+	session string  `json:"sessionID"`
+	uuid    string  `json:"uuid"`
+	player  string  `json:"playerID"`
+	deck    DeckDTO `json:"deck"`
 }
 
 // join a game
@@ -69,25 +99,25 @@ func joinGame(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "", http.StatusBadRequest)
 		return
 	}
-	var game models.Game
 	// validate deck
-	if !rq.deck.IsValid() {
+	deck := rq.deck.toDeck()
+	if !deck.IsValid() {
 		http.Error(w, "Deck does not meet acceptable criteria for competitive gameplay.", http.StatusBadRequest)
 		return
 	}
 	client := getClient()
+
 	if game, err := drift.GetGameFromSession(rq.session, client); err == redis.Nil {
 		// create a new session if one isn't found
 		log.Print("session not found, creating a new one")
 		game = &models.Game{
 			PlayerOne: models.Player{
 				Id:   rq.player,
-				Deck: rq.deck,
+				Deck: deck,
 			},
 			PlayerTwo: models.Player{},
 			Round:     0,
 			Wins:      []bool{false, false, false},
-			Direction: -1,
 		}
 		// save session
 		if _, err = client.Set(rq.session, game, 0).Result(); err != nil {
@@ -101,30 +131,30 @@ func joinGame(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// if the player is joining a game they're already in, send them the current state of the game
 		// this allows a player to rejoin a game they accidentally disconnected from
-		if player, err = game.GetPlayer(rq.player); err == nil {
+		if _, err := game.GetPlayer(rq.player); err == nil {
 			out := publishState(game)
 			w.WriteHeader(http.StatusOK)
 			w.Header().Set("Content-Type", "application/json")
 			w.Write(out)
 			return
-		} else {
-			if game.HasStarted {
-				http.Error(w, "Match has already started", http.StatusForbidden)
-				return
-			}
+		}
+		if game.HasStarted {
+			http.Error(w, "Match has already started", http.StatusForbidden)
+			return
+		}
 
-			game.PlayerTwo = models.Player{
-				Id:   rq.player,
-				Deck: rq.deck,
-			}
-			// ready to play
-			game.Begin()
+		game.PlayerTwo = models.Player{
+			Id:   rq.player,
+			Deck: deck,
+		}
+		// ready to play
+		game.Begin()
+		manager.Publish(rq.session, publishState(game))
 
-			// save session
-			if _, err = client.Set(rq.session, game, 0).Result(); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
+		// save session
+		if _, err = client.Set(rq.session, game, 0).Result(); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 	}
 
@@ -173,7 +203,7 @@ func playCard(w http.ResponseWriter, r *http.Request) {
 		// send message with game's new state to the players
 		// this is naive for now and can get big, ideally we'll want to just send diffs
 		dto := publishState(game)
-		manager.Publish(session, dto)
+		manager.Publish(rq.session, dto)
 		// write back the state in this as well for validation purposes
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(dto)

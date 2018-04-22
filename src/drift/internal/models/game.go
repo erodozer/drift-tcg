@@ -3,9 +3,11 @@ package models
 import "errors"
 import "math/rand"
 
+type Direction bool
+
 const (
-	Downhill = false
-	Uphill   = true
+	Downhill = Direction(false)
+	Uphill   = Direction(true)
 )
 
 type PlayedDisaster struct {
@@ -38,7 +40,7 @@ type Battle struct {
 	PlayerTwo       *PlayerState
 	BattleDisasters []*PlayedDisaster
 	CardsInPlay     []*RoadStack
-	Direction       bool
+	Direction       Direction
 	StartTurn       bool
 	Turn            bool
 }
@@ -58,7 +60,7 @@ func (g Game) Begin() {
 	var handOne *Hand
 	var handTwo *Hand
 	var turn bool
-	var direction bool
+	var direction Direction
 	if g.CurrentBattle != nil {
 		// carry over hand from previous battle
 		handOne = g.CurrentBattle.PlayerOne.Hand
