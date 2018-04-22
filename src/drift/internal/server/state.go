@@ -1,3 +1,5 @@
+package server
+
 // Game state handling on the server with Redis
 // includes
 //	 turn order management
