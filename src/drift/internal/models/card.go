@@ -5,10 +5,7 @@ const (
 	StraightAway = 1
 )
 
-type Card interface {
-	Point() int
-	Id() string
-}
+type Card interface{}
 
 type RoadType int
 

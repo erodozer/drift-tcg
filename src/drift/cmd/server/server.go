@@ -5,7 +5,9 @@ import (
 	"drift/internal/models"
 	"encoding/json"
 	"log"
+	"math/rand"
 	"net/http"
+	"time"
 
 	"github.com/go-redis/redis"
 )
@@ -33,7 +35,7 @@ func CardHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(out)
 }
 
-// join a game 
+// join a game
 func JoinGame(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "", http.StatusMethodNotAllowed)
@@ -42,25 +44,31 @@ func JoinGame(w http.ResponseWriter, r *http.Request) {
 
 	session := r.FormValue("session-id")
 	playerId := r.FormValue("uuid")
-	if playerId = nil {
+	if playerId == "" {
 		playerId = session
 	}
-	deck := json.Unmarshal(r.FormValue("deck"), models.Deck)
+	var deck models.Deck
+	err := json.Unmarshal([]byte(r.FormValue("deck")), deck)
+	// validate deck
+	if !deck.IsValid() {
+		http.Error(w, "Deck does not meet acceptable criteria for competitive gameplay.", http.StatusBadRequest)
+		return
+	}
 	client := getClient()
 	data, err := client.Get(session).Result()
 	// create a new session if one isn't found
 	if err == redis.Nil {
 		log.Print("session not found, creating a new one")
 		game := models.Game{
-			playerOne: models.Player {
-				Id: playerId,
-				Deck: deck,
-				Hand: models.Hand{},
+			PlayerOne: models.Player{
+				Id:    playerId,
+				Deck:  deck,
+				Hand:  models.Hand{},
 				Score: 0,
 			},
-			playerTwo: nil,
-			Round: 0,
-			Wins: []bool{false, false, false},
+			PlayerTwo: nil,
+			Round:     0,
+			Wins:      []bool{false, false, false},
 			Direction: -1,
 		}
 		r.Set(session)
@@ -74,15 +82,31 @@ func JoinGame(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
-		}	
+		}
+		if game.PlayerTwo != nil {
+			http.Error(w, "Match has already started", http.StatusForbidden)
+			return
+		}
+		game.PlayerTwo = models.Player{
+			Id:    playerId,
+			Deck:  deck,
+			Hand:  models.Hand{},
+			Score: 0,
+		}
 	}
+	// ready to play
+	if game.PlayerOne != nil && game.PlayerTwo != nil {
+		// deal the hands
+
+	}
+
 	// save session
 	_, err = r.Set(session, game)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	
+
 	response := http.Response{
 		status: http.StatusOK,
 	}
@@ -95,6 +119,7 @@ func Events(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	rand.Seed(time.Now().UnixNano())
 	http.HandleFunc("/cards", CardHandler)
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
