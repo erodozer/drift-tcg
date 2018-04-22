@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	RoadTarget   = 0
-	PlayerTarget = 1
+	RoadTarget   = TargetChoice(0)
+	PlayerTarget = TargetChoice(1)
 	AddToStack   = -1
 )
 

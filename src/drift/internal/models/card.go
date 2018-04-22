@@ -29,12 +29,12 @@ type Car struct {
 }
 
 const (
-	TuneupSelf = 0
-	TuneupRoad = 1
+	TuneupSelf = TuneUpTarget(0)
+	TuneupRoad = TuneUpTarget(1)
 )
 
 type TuneUpTarget int
-type TuneUpAction func()
+type TuneUpAction func(player *Player, battle *Battle)
 
 type TuneUp struct {
 	Name   string
