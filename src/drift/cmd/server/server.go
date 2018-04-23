@@ -40,9 +40,9 @@ func cardHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	out := struct {
-		Cars      map[string]models.Car      `json:"cars"`
-		Disasters map[string]models.Disaster `json:"disasters"`
-		Roads     map[string]models.Road     `json:"roads"`
+		Cars      map[string]*models.Car      `json:"cars"`
+		Disasters map[string]*models.Disaster `json:"disasters"`
+		Roads     map[string]*models.Road     `json:"roads"`
 	}{
 		Cars:      cards.Cars,
 		Disasters: cards.Disasters,
@@ -230,5 +230,9 @@ func main() {
 	http.HandleFunc("/events", manager.SubscriptionHandler)
 	http.HandleFunc("/cards", cardHandler)
 	http.HandleFunc("/join", joinGame)
+	http.HandleFunc("/static/", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, r.URL.Path[1:])
+	})
+	http.HandleFunc("/", http.FileServer(http.Dir("web"))
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
