@@ -1,4 +1,4 @@
-package cards
+package models
 
 func GetCard(id string) interface{} {
 	if card, err := Cars[id]; !err {

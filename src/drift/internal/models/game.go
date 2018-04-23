@@ -1,7 +1,12 @@
 package models
 
-import "errors"
-import "math/rand"
+import (
+	"encoding/json"
+	"errors"
+	"math/rand"
+
+	"github.com/go-redis/redis"
+)
 
 type Direction bool
 
@@ -10,61 +15,73 @@ const (
 	Uphill   = Direction(true)
 )
 
-type PlayedDisaster struct {
-	PlayedBy Player
-	Card     Disaster
-}
-
-type PlayedTuneup struct {
-	PlayedBy Player
-	Card     TuneUp
+type PlayedCard struct {
+	PlayedBy string `json:"playedBy"`
+	Card     string `json:"card"`
 }
 
 // RoadStack represent cards in play
-type RoadStack struct {
-	Road      *Road
-	Disasters []*PlayedDisaster
-	Tuneups   []*PlayedTuneup
-	PlayedBy  *Player
+type PlayedRoad struct {
+	PlayedCard
+	Disasters []PlayedCard `json:"disasters"`
+	Tuneups   []PlayedCard `json:"tuneups"`
+}
+
+// Get the calculated worth of this road tile for the player
+func (p *PlayedRoad) Value(player *Player) int {
+	card := Roads[p.Card]
+	points := card.Value
+	for _, tuneupCard := range p.Tuneups {
+		tuneup := TuneUps[tuneupCard.Card]
+		points = tuneup.Action(points, player, p)
+	}
+	for _, disasterCard := range p.Disasters {
+		disaster := Disasters[disasterCard.Card]
+		points = disaster.Action(points, player, p)
+	}
+	return points
 }
 
 type PlayerState struct {
-	Player  *Player
-	Hand    *Hand
-	Tuneups []PlayedTuneup
-	Score   int
+	Player  *Player      `json:"player"`
+	Tuneups []PlayedCard `json:"tuneups"`
+	Score   int          `json:"score"`
 }
 
 type Battle struct {
-	PlayerOne       *PlayerState
-	PlayerTwo       *PlayerState
-	BattleDisasters []*PlayedDisaster
-	CardsInPlay     []*RoadStack
-	Direction       Direction
-	StartTurn       bool
-	Turn            bool
+	PlayerOne   *PlayerState
+	PlayerTwo   *PlayerState
+	Disasters   []PlayedCard
+	CardsInPlay []PlayedRoad
+	Direction   Direction
+	StartTurn   bool
+	Turn        bool
 }
 
-type Game struct {
-	PlayerOne Player
-	PlayerTwo Player
+type Result int
 
-	CurrentBattle *Battle
-	Round         int
-	Wins          []bool
-	HasStarted    bool
+const (
+	UndecidedWin = Result(0)
+	PlayerOneWin = Result(1)
+	PlayerTwoWin = Result(2)
+)
+
+type Game struct {
+	PlayerOne *Player `json:"playerOne"`
+	PlayerTwo *Player `json:"playerTwo"`
+
+	CurrentBattle *Battle  `json:"currentBattle"`
+	Round         int      `json:"round"`
+	Wins          []Result `json:"wins"`
+	HasStarted    bool     `json:"hasStarted"`
 }
 
 // Begin will start a new battle
 func (g Game) Begin() {
-	var handOne *Hand
-	var handTwo *Hand
 	var turn bool
 	var direction Direction
 	if g.CurrentBattle != nil {
 		// carry over hand from previous battle
-		handOne = g.CurrentBattle.PlayerOne.Hand
-		handTwo = g.CurrentBattle.PlayerTwo.Hand
 		turn = !g.CurrentBattle.StartTurn
 		direction = !g.CurrentBattle.Direction
 	} else {
@@ -77,22 +94,20 @@ func (g Game) Begin() {
 	}
 	g.CurrentBattle = &Battle{
 		PlayerOne: &PlayerState{
-			Player:  &g.PlayerOne,
-			Hand:    handOne,
+			Player:  g.PlayerOne,
 			Score:   0,
-			Tuneups: []PlayedTuneup{},
+			Tuneups: []PlayedCard{},
 		},
 		PlayerTwo: &PlayerState{
-			Player:  &g.PlayerTwo,
-			Hand:    handTwo,
+			Player:  g.PlayerTwo,
 			Score:   0,
-			Tuneups: []PlayedTuneup{},
+			Tuneups: []PlayedCard{},
 		},
-		BattleDisasters: []*PlayedDisaster{},
-		CardsInPlay:     []*RoadStack{},
-		Direction:       direction,
-		StartTurn:       turn,
-		Turn:            turn,
+		Disasters:   []PlayedCard{},
+		CardsInPlay: []PlayedRoad{},
+		Direction:   direction,
+		StartTurn:   turn,
+		Turn:        turn,
 	}
 	g.HasStarted = true
 }
@@ -102,12 +117,44 @@ func (g Game) Finish() {
 
 }
 
-func (g Game) GetPlayer(id string) (*Player, error) {
-	if g.PlayerOne.Id == id {
-		return &g.PlayerOne, nil
-	} else if g.PlayerTwo.Id == id {
-		return &g.PlayerTwo, nil
+func (g Game) GetPlayerByID(id string) *Player {
+	if g.PlayerOne.ID == id {
+		return g.PlayerOne
+	} else if g.PlayerTwo.ID == id {
+		return g.PlayerTwo
 	} else {
-		return nil, errors.New("Player is not playing this match")
+		return nil
+	}
+}
+
+func (g Battle) GetPlayerStateByID(id string) *PlayerState {
+	if g.PlayerOne.Player.ID == id {
+		return g.PlayerOne
+	} else if g.PlayerTwo.Player.ID == id {
+		return g.PlayerTwo
+	} else {
+		return nil
+	}
+}
+
+func (g Battle) GetPlayerState(player *Player) *PlayerState {
+	if g.PlayerOne.Player == player {
+		return g.PlayerOne
+	} else if g.PlayerTwo.Player == player {
+		return g.PlayerTwo
+	} else {
+		return nil
+	}
+}
+
+func GetGameFromSession(session string, client *redis.Client) (*Game, error) {
+	if data, err := client.Get(session).Result(); err != nil {
+		return nil, err
+	} else {
+		game := Game{}
+		if err := json.Unmarshal([]byte(data), &game); err != nil {
+			return nil, errors.New("Could not deserialize game from storage")
+		}
+		return &game, nil
 	}
 }

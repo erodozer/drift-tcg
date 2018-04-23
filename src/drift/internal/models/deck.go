@@ -6,14 +6,14 @@ import (
 )
 
 type Deck struct {
-	Car       Car
-	Tuneups   []TuneUp
-	Roads     []Road
-	Disasters []Disaster
+	Car       string   `json:"car"`
+	Tuneups   []string `json:"tuneups"`
+	Roads     []string `json:"roads"`
+	Disasters []string `json:"disasters"`
 }
 
 type Hand struct {
-	Cards []string // ids of cards
+	Cards []string `json:"cards"` // ids of cards
 }
 
 // IsValid goes over the provided cards and makes sure they don't extend past the limits of play
@@ -50,7 +50,7 @@ func (h Hand) UseCard(id string) error {
 // Generate a hand randomly from the deck
 func (d Deck) createHand() Hand {
 	h := Hand{}
-	cards := append([]string{}, d.Car.ID)
+	cards := append([]string{}, d.Car)
 	added := 0
 	for added < 12 {
 		choice := rand.Intn(3)
@@ -61,7 +61,7 @@ func (d Deck) createHand() Hand {
 			index := rand.Intn(len(d.Tuneups))
 			card := d.Tuneups[index]
 			d.Tuneups = append(d.Tuneups[:index], d.Tuneups[index+1:]...)
-			cards = append(cards, card.ID)
+			cards = append(cards, card)
 			added++
 		} else if choice == 1 {
 			if len(d.Roads) == 0 {
@@ -70,7 +70,7 @@ func (d Deck) createHand() Hand {
 			index := rand.Intn(len(d.Roads))
 			card := d.Roads[index]
 			d.Roads = append(d.Roads[:index], d.Roads[index+1:]...)
-			cards = append(cards, card.ID)
+			cards = append(cards, card)
 			added++
 		} else if choice == 2 {
 			if len(d.Disasters) == 0 {
@@ -79,7 +79,7 @@ func (d Deck) createHand() Hand {
 			index := rand.Intn(len(d.Disasters))
 			card := d.Disasters[index]
 			d.Disasters = append(d.Disasters[:index], d.Disasters[index+1:]...)
-			cards = append(cards, card.ID)
+			cards = append(cards, card)
 			added++
 		}
 	}

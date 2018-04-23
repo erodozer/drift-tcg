@@ -1,6 +1,7 @@
 package models
 
 type Player struct {
-	Id   string
-	Deck Deck
+	ID   string `json:"id"`
+	Deck Deck   `json:"deck"`
+	Hand Hand   `json:"hand"`
 }
