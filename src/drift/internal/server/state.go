@@ -1,6 +1,8 @@
 package server
 
 import (
+	"drift/internal/models"
+
 	"github.com/go-redis/redis"
 	"github.com/jcuga/golongpoll"
 )
@@ -19,4 +21,8 @@ var RedisOptions *redis.Options
 
 func getClient() *redis.Client {
 	return redis.NewClient(RedisOptions)
+}
+
+func RecalculateScores(battle *models.Battle) {
+
 }

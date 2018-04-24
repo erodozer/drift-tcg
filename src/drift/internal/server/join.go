@@ -10,9 +10,9 @@ import (
 )
 
 type JoinGameRequest struct {
-	Session string      `json:"session"`
-	Player  string      `json:"player"`
-	Deck    models.Deck `json:"deck"`
+	Session string         `json:"session"`
+	Player  string         `json:"player"`
+	Deck    []*models.Card `json:"deck"`
 }
 
 // join a game
@@ -24,15 +24,16 @@ func JoinGameHandler(w http.ResponseWriter, r *http.Request) {
 
 	rq := JoinGameRequest{}
 	if err := json.NewDecoder(r.Body).Decode(&rq); err != nil {
-		http.Error(w, "", http.StatusBadRequest)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	// validate deck
-	deck := rq.Deck
-	if !deck.IsValid() {
+	if err := models.IsValidDeck(rq.Deck); err != nil {
+		log.Print(err.Error())
 		http.Error(w, "Deck does not meet acceptable criteria for competitive gameplay.", http.StatusBadRequest)
 		return
 	}
+	deck, _ := models.ToDeck(rq.Deck)
 	client := getClient()
 
 	if game, err := models.GetGameFromSession(rq.Session, client); err == redis.Nil {

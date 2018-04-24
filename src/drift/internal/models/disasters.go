@@ -8,21 +8,22 @@ const (
 type DisasterTarget int
 
 type Disaster struct {
-	ID     string         `json:"id"`
-	Name   string         `json:"name"`
-	Impact DisasterTarget `json:"impact"`
-	Action func(points int, player *Player, battle *PlayedRoad) int
+	ID           string                               `json:"id"`
+	Name         string                               `json:"name"`
+	Target       DisasterTarget                       `json:"impact"`
+	OnActivation func()                               `json:"-"`
+	OnScoring    func(points int, player *Player) int `json:"-"`
 }
 
-func fallback(points int, player *Player, battle *PlayedRoad) int {
+func fallback(points int, player *Player) int {
 	return points
 }
 
-var Disasters = map[string]*Disaster{
-	"68f53073-25d0-4933-be8b-9ab21194b517": &Disaster{
-		ID:     "68f53073-25d0-4933-be8b-9ab21194b517",
-		Name:   "Rain",
-		Impact: DisasterAll,
-		Action: fallback,
+var Disasters = map[string]Disaster{
+	"68f53073-25d0-4933-be8b-9ab21194b517": Disaster{
+		ID:        "68f53073-25d0-4933-be8b-9ab21194b517",
+		Name:      "Rain",
+		Target:    DisasterAll,
+		OnScoring: fallback,
 	},
 }

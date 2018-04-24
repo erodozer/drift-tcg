@@ -1,7 +1,6 @@
 package server
 
 import (
-	"drift/internal/cards"
 	"drift/internal/models"
 	"encoding/json"
 	"errors"
@@ -18,9 +17,10 @@ const (
 type TargetChoice int
 
 type PlayCardRequest struct {
-	Session string `json:"sessionID"`
-	Player  string `json:"player"`
-	Card    string `json:"card"`
+	Session string      `json:"sessionID"`
+	Player  string      `json:"player"`
+	Card    models.Card `json:"card"`
+	Stack   int         `json:"stack"`
 }
 
 func PlayCardHandler(w http.ResponseWriter, r *http.Request) {
@@ -46,7 +46,7 @@ func PlayCardHandler(w http.ResponseWriter, r *http.Request) {
 		if player := game.CurrentBattle.GetPlayerStateByID(rq.Player); player == nil {
 			http.Error(w, "Player is not in this match", http.StatusBadRequest)
 			return
-		} else if err := PlayCard(game.CurrentBattle, player, rq.Card); err != nil {
+		} else if err := PlayCard(game.CurrentBattle, player, &rq.Card, rq.Stack); err != nil {
 			// attempt to play the card in the server
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -61,12 +61,14 @@ func PlayCardHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // Plays a card into the game
-func PlayCard(b *models.Battle, playerState *models.PlayerState, cardID string) error {
+func PlayCard(b *models.Battle, playerState *models.PlayerState, cardID *models.Card, stack int) error {
 	if (b.Turn == true && playerState == b.PlayerOne) || (b.Turn == false && playerState == b.PlayerTwo) {
 		return errors.New("Invalid Move: It is not this player's turn at this time")
 	}
 	player := playerState.Player
-	if _, notFound := models.Roads[cardID]; !notFound {
+	if _, err := cardID.Ref(); err != nil {
+		return err
+	} else if cardID.Type == models.RoadCard {
 		b.CardsInPlay = append(
 			b.CardsInPlay,
 			models.PlayedRoad{
@@ -78,46 +80,40 @@ func PlayCard(b *models.Battle, playerState *models.PlayerState, cardID string) 
 				Disasters: []models.PlayedCard{},
 			},
 		)
-		player.Hand.UseCard(cardID)
-	}
-	if card, notFound := models.TuneUps[cardID]; !notFound {
-		tuneup := models.PlayedCard{
-			Card:     cardID,
-			PlayedBy: player.ID,
+	} else if cardID.Type == models.TuneUpCard {
+		tuneup, _ := cardID.AsTuneUp()
+		if tuneup.Target == models.TuneupSelf {
+			playerState.Tuneups = append(playerState.Tuneups, models.PlayedCard{
+				PlayedBy: player.ID,
+				Card:     cardID,
+			})
+		} else if tuneup.Target == models.TuneupRoad {
+			b.CardsInPlay[stack].Tuneups = append(b.CardsInPlay[stack].Tuneups, models.PlayedCard{
+				PlayedBy: player.ID,
+				Card:     cardID,
+			})
 		}
-		if card.Target == models.TuneupSelf {
-			playerState.Tuneups = append(playerState.Tuneups, tuneup)
-			player.Hand.UseCard(cardID)
-		} else if card.Target == models.TuneupRoad {
-			if len(b.CardsInPlay) == 0 {
-				return errors.New("Invalid Move: No roads have been played")
+		if tuneup.OnActivation != nil {
+			tuneup.OnActivation()
+		}
+	} else if cardID.Type == models.DisasterCard {
+		disaster, _ := cardID.AsDisaster()
+		if disaster.Target == models.DisasterAll {
+			b.Disaster = models.PlayedCard{
+				PlayedBy: player.ID,
+				Card:     cardID,
 			}
-			// apply tuneup to most recently played road
-			road := b.CardsInPlay[len(b.CardsInPlay)-1]
-			road.Tuneups = append(road.Tuneups, tuneup)
-			player.Hand.UseCard(cardID)
+		} else if disaster.Target == models.DisasterRoad {
+			b.CardsInPlay[stack].Disasters = append(b.CardsInPlay[stack].Disasters, models.PlayedCard{
+				PlayedBy: player.ID,
+				Card:     cardID,
+			})
+		}
+		if disaster.OnActivation != nil {
+			disaster.OnActivation()
 		}
 	}
-	if card, notFound := models.Disasters[cardID]; !notFound {
-		// apply tuneup to
-		disaster := models.PlayedCard{
-			Card:     cardID,
-			PlayedBy: player.ID,
-		}
-		if card.Impact == models.DisasterAll {
-			b.Disasters = append(b.Disasters, disaster)
-			player.Hand.UseCard(cardID)
-		} else if card.Impact == models.DisasterRoad {
-			if len(b.CardsInPlay) == 0 {
-				return errors.New("Invalid Move: No roads have been played")
-			}
-			road := b.CardsInPlay[len(b.CardsInPlay)-1]
-			road.Disasters = append(road.Disasters, disaster)
-			player.Hand.UseCard(cardID)
-		}
-	}
-
-	// recalculate the entire battle state
-
+	playerState.Hand.DrawCardByID(cardID.ID)
+	RecalculateScores(b)
 	return nil
 }

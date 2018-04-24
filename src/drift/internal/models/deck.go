@@ -5,84 +5,116 @@ import (
 	"math/rand"
 )
 
-type Deck struct {
-	Car       string   `json:"car"`
-	Tuneups   []string `json:"tuneups"`
-	Roads     []string `json:"roads"`
-	Disasters []string `json:"disasters"`
+type CardStack struct {
+	Car   *Card   `json:"car"`
+	Cards []*Card `json:"cards"`
 }
 
-type Hand struct {
-	Cards []string `json:"cards"` // ids of cards
+func ToDeck(cards []*Card) (*CardStack, error) {
+	for index, card := range cards {
+		if _, err := card.AsCar(); err == nil {
+			return &CardStack{
+				Car:   card,
+				Cards: append(cards[:index], cards[index+1:]...),
+			}, nil
+		}
+	}
+	return nil, errors.New("Car not found in deck")
 }
 
 // IsValid goes over the provided cards and makes sure they don't extend past the limits of play
-func (d Deck) IsValid() bool {
-	tuneups := len(d.Tuneups)
-	roads := len(d.Roads)
-	disasters := len(d.Disasters)
-
-	return tuneups <= 5 &&
-		roads >= 10 &&
-		disasters <= 5 &&
-		(tuneups+roads+disasters) >= 12
-}
-
-func (h Hand) UseCard(id string) error {
-	if len(h.Cards) == 0 {
-		return errors.New("Hand is empty")
+func IsValidDeck(cards []*Card) error {
+	if len(cards) < 11 {
+		return errors.New("Not Enough Cards in Deck")
+	} else if len(cards) > 56 {
+		return errors.New("Too Many Cards")
 	}
-	index := -1
-	for i, card := range h.Cards {
-		if card == id {
-			index = i
-			break
+	cars, tuneups, roads, disasters := 0, 0, 0, 0
+	for _, card := range cards {
+		if _, err := card.Ref(); err != nil {
+			return err
+		} else {
+			switch card.Type {
+			case TuneUpCard:
+				tuneups++
+			case RoadCard:
+				roads++
+			case DisasterCard:
+				disasters++
+			case CarCard:
+				cars++
+			}
 		}
 	}
-	if index > -1 {
-		h.Cards = append(h.Cards[:index], h.Cards[index+1:]...)
-	} else {
-		return errors.New("Card is not in player's hand")
+	if tuneups > 10 {
+		return errors.New("Too Many Cards: TuneUps")
+	}
+	if roads < 10 {
+		return errors.New("Not Enough Cards: Roads")
+	} else if roads > 35 {
+		return errors.New("Too Many Cards: Roads")
+	}
+	if disasters > 10 {
+		return errors.New("Too Many Cards: Disasters")
+	}
+	if cars > 1 {
+		return errors.New("Too Many Cards: Car")
+	} else if cars < 1 {
+		return errors.New("Not Enough Cards: Car")
 	}
 	return nil
 }
 
-// Generate a hand randomly from the deck
-func (d Deck) createHand() Hand {
-	h := Hand{}
-	cards := append([]string{}, d.Car)
-	added := 0
-	for added < 12 {
-		choice := rand.Intn(3)
-		if choice == 0 {
-			if len(d.Tuneups) == 0 {
-				continue
-			}
-			index := rand.Intn(len(d.Tuneups))
-			card := d.Tuneups[index]
-			d.Tuneups = append(d.Tuneups[:index], d.Tuneups[index+1:]...)
-			cards = append(cards, card)
-			added++
-		} else if choice == 1 {
-			if len(d.Roads) == 0 {
-				continue
-			}
-			index := rand.Intn(len(d.Roads))
-			card := d.Roads[index]
-			d.Roads = append(d.Roads[:index], d.Roads[index+1:]...)
-			cards = append(cards, card)
-			added++
-		} else if choice == 2 {
-			if len(d.Disasters) == 0 {
-				continue
-			}
-			index := rand.Intn(len(d.Disasters))
-			card := d.Disasters[index]
-			d.Disasters = append(d.Disasters[:index], d.Disasters[index+1:]...)
-			cards = append(cards, card)
-			added++
+func (h *CardStack) AddCard(card *Card) {
+	h.Cards = append(h.Cards, card)
+}
+
+// pops a card from the stack
+func (h *CardStack) DrawCard() *Card {
+	index := rand.Intn(len(h.Cards))
+	return h.DrawCardAtIndex(index)
+}
+
+// pops a card out of the stack by its ID
+func (h *CardStack) DrawCardByID(ID string) *Card {
+	for index, card := range h.Cards {
+		if card.ID == ID {
+			return h.DrawCardAtIndex(index)
 		}
 	}
-	h.Cards = cards
-	return h
+	return nil
+}
+
+// pops a card from the stack at a specific position
+func (h *CardStack) DrawCardAtIndex(index int) *Card {
+	card := h.Cards[index]
+	h.Cards = append(h.Cards[:index], h.Cards[index+1:]...)
+	return card
+}
+
+// Generate a hand randomly from the deck
+func (d *CardStack) CreateHand(game *Game) *CardStack {
+	cards := []*Card{}
+	added := 0
+	var draw int
+	switch game.Style {
+	case SuddenDeath:
+		draw = 10
+	case TimeAttack:
+		draw = 7
+	default:
+		draw = 7
+	}
+	tmpStack := CardStack{
+		Car:   &Card{},
+		Cards: d.Cards[:len(d.Cards)],
+	}
+	for added < draw {
+		cards = append(cards, tmpStack.DrawCard())
+		added++
+	}
+	return &CardStack{
+		Car:   d.Car,
+		Cards: cards,
+	}
 }

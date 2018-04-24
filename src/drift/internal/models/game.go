@@ -17,7 +17,7 @@ const (
 
 type PlayedCard struct {
 	PlayedBy string `json:"playedBy"`
-	Card     string `json:"card"`
+	Card     *Card  `json:"card"`
 }
 
 // RoadStack represent cards in play
@@ -29,29 +29,37 @@ type PlayedRoad struct {
 
 // Get the calculated worth of this road tile for the player
 func (p *PlayedRoad) Value(player *Player) int {
-	card := Roads[p.Card]
+	card, _ := p.Card.AsRoad()
 	points := card.Value
-	for _, tuneupCard := range p.Tuneups {
-		tuneup := TuneUps[tuneupCard.Card]
-		points = tuneup.Action(points, player, p)
+	for _, card := range p.Tuneups {
+		tuneup, _ := card.Card.AsTuneUp()
+		points = tuneup.OnScoring(points, player)
 	}
-	for _, disasterCard := range p.Disasters {
-		disaster := Disasters[disasterCard.Card]
-		points = disaster.Action(points, player, p)
+	for _, card := range p.Disasters {
+		disaster, _ := card.Card.AsTuneUp()
+		points = disaster.OnScoring(points, player)
 	}
 	return points
 }
 
 type PlayerState struct {
 	Player  *Player      `json:"player"`
+	Pile    *CardStack   `json:"pile"`
+	Discard *CardStack   `json:"discarded"`
+	Hand    *CardStack   `json:"hand"`
 	Tuneups []PlayedCard `json:"tuneups"`
 	Score   int          `json:"score"`
+}
+
+// DrawCard removes a card from the player's pile and inserts it into their hand
+func (p *PlayerState) DrawCard() {
+	p.Hand.AddCard(p.Pile.DrawCard())
 }
 
 type Battle struct {
 	PlayerOne   *PlayerState
 	PlayerTwo   *PlayerState
-	Disasters   []PlayedCard
+	Disaster    PlayedCard
 	CardsInPlay []PlayedRoad
 	Direction   Direction
 	StartTurn   bool
@@ -59,17 +67,21 @@ type Battle struct {
 }
 
 type Result int
+type Style int
 
 const (
 	UndecidedWin = Result(0)
 	PlayerOneWin = Result(1)
 	PlayerTwoWin = Result(2)
+	TimeAttack   = Style(0)
+	SuddenDeath  = Style(1)
 )
 
 type Game struct {
 	PlayerOne *Player `json:"playerOne"`
 	PlayerTwo *Player `json:"playerTwo"`
 
+	Style         Style    `json:"style"`
 	CurrentBattle *Battle  `json:"currentBattle"`
 	Round         int      `json:"round"`
 	Wins          []Result `json:"wins"`
@@ -77,7 +89,7 @@ type Game struct {
 }
 
 // Begin will start a new battle
-func (g Game) Begin() {
+func (g *Game) Begin() {
 	var turn bool
 	var direction Direction
 	if g.CurrentBattle != nil {
@@ -97,13 +109,16 @@ func (g Game) Begin() {
 			Player:  g.PlayerOne,
 			Score:   0,
 			Tuneups: []PlayedCard{},
+			Pile:    g.PlayerOne.Deck,
+			Hand:    g.PlayerOne.Deck.CreateHand(g),
+			Discard: &CardStack{},
 		},
 		PlayerTwo: &PlayerState{
 			Player:  g.PlayerTwo,
 			Score:   0,
 			Tuneups: []PlayedCard{},
 		},
-		Disasters:   []PlayedCard{},
+		Disaster:    PlayedCard{},
 		CardsInPlay: []PlayedRoad{},
 		Direction:   direction,
 		StartTurn:   turn,
